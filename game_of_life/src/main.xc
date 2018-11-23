@@ -123,13 +123,8 @@ void distributor(chanend datastream_in, chanend datastream_out, chanend fromAcc,
           fromAcc :> value;
           while(value == 0){
                   fromAcc :> value;
-
           }
 
-          printf("%d\n", value);
-          //Read in and do something with your image values..
-          //This just inverts every pixel, but you should
-          //change the image according to the "Game of Life"
           printf( "Processing...\n" );
           if(round == 1){
               for( int y = 0; y < IMHT; y++ ) {   //go through all lines
@@ -139,7 +134,7 @@ void distributor(chanend datastream_in, chanend datastream_out, chanend fromAcc,
                   }
               }
           }
-          printf( "Processing2...\n" );
+
           for(int y = 0; y < IMHT; y++){
               for(int x = 0; x <IMWD; x++){
                   //Finds 8 values around val.
@@ -172,6 +167,25 @@ void distributor(chanend datastream_in, chanend datastream_out, chanend fromAcc,
                   world[x][y] = worldTemp[x][y];
               }
           }
+          select {
+              case fromButtons :> buttonPress:
+                  if(buttonPress == 13){
+                      for(int y = 0; y < IMHT; y++){
+                          for(int x = 0; x <IMWD; x++){
+                              datastream_out <: (uchar)world[x][y];
+
+                          }
+                      }
+                  }
+              break;
+              default:
+                  break;
+          }
+
+          //fromButtons :> buttonPress;
+            if(buttonPress == 13){
+                printf("yay\n");
+            }
 
           // To Dataout
           //datastream_out <: (uchar)deadOrAlive(world[x][y],values);
@@ -222,12 +236,13 @@ int deadOrAlive(int value, int values[8])    {
 /////////////////////////////////////////////////////////////////////////////////////////
 void DataOutStream(char outfname[], chanend c_in)
 {
-  int running = 1;
   int res;
+  int running = 1;
   uchar line[ IMWD ];
 
 
   //Open PGM file
+  while(running){
   printf( "DataOutStream: Start...\n" );
   res = _openoutpgm( outfname, IMWD, IMHT );
   if( res ) {
@@ -248,7 +263,7 @@ void DataOutStream(char outfname[], chanend c_in)
   //Close the PGM image
   _closeoutpgm();
   printf( "DataOutStream: Done...\n" );
-
+  }
   return;
 }
 
@@ -260,7 +275,6 @@ void DataOutStream(char outfname[], chanend c_in)
 void orientation( client interface i2c_master_if i2c, chanend toDist) {
   i2c_regop_res_t result;
   char status_data = 0;
-  int tilted = 0;
 
   // Configure FXOS8700EQ
   result = i2c.write_reg(FXOS8700EQ_I2C_ADDR, FXOS8700EQ_XYZ_DATA_CFG_REG, 0x01);
@@ -287,12 +301,11 @@ void orientation( client interface i2c_master_if i2c, chanend toDist) {
 
     //send signal to distributor after first tilt
 
-        if (x>30) {
-            tilted = 1 - tilted;
-            toDist <: tilted;
-        }
-            printf("%d\n", tilted);
-
+    if (x>30) {
+        toDist <: 1;
+    }else{
+        toDist <: 0;
+    }
   }
  }
 
