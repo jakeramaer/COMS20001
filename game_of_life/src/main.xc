@@ -29,14 +29,14 @@ on tile[0] : out port leds = XS1_PORT_4F;   //port to access xCore-200 LEDs
 #define FXOS8700EQ_OUT_Y_LSB 0x4
 #define FXOS8700EQ_OUT_Z_MSB 0x5
 #define FXOS8700EQ_OUT_Z_LSB 0x6
-int deadOrAlive(int value, int values[8]);
+int deadOrAlive(int value, int values[8]); // Declaring functions
+
 
 /////////////////////////////////////////////////////////////////////////////////////////
 //
-// Read Image from PGM file from path infname[] to channel c_out
+// Helper Functons
 //
 /////////////////////////////////////////////////////////////////////////////////////////
-
 void buttonListener(in port b, chanend toDist) {
   int r;
   while (1) {
@@ -59,6 +59,12 @@ int showLEDs(out port p, chanend fromVisualiser) {
   return 0;
 }
 
+
+/////////////////////////////////////////////////////////////////////////////////////////
+//
+// Read Image from PGM file from path infname[] to channel c_out
+//
+/////////////////////////////////////////////////////////////////////////////////////////
 void DataInStream(char infname[], chanend c_out)
 {
   int res; //resolution
@@ -93,13 +99,9 @@ void DataInStream(char infname[], chanend c_out)
 
 /////////////////////////////////////////////////////////////////////////////////////////
 //
-// Start your implementation by changing this function to implement the game of life
-// by farming out parts of the image to worker threads who implement it...
-// Currently the function just inverts the image
+// Distributer function
 //
 /////////////////////////////////////////////////////////////////////////////////////////
-
-
 void distributor(chanend datastream_in, chanend datastream_out, chanend fromAcc, chanend fromButtons)
 {
   uchar val;
@@ -147,7 +149,7 @@ void distributor(chanend datastream_in, chanend datastream_out, chanend fromAcc,
                   values[5] = world[(x+(IMWD-1))%IMWD][(y+(IMHT+1))%IMHT];
                   values[6] = world[(x+(IMWD-1))%IMWD][y];
                   values[7] = world[(x+(IMWD-1))%IMWD][(y+(IMHT-1))%IMHT];
-                  worldTemp[x][y] = deadOrAlive(world[x][y],values); //change
+                  worldTemp[x][y] = deadOrAlive(world[x][y],values); //changes values, stores in worldTemp
               }
           }
 
@@ -167,6 +169,7 @@ void distributor(chanend datastream_in, chanend datastream_out, chanend fromAcc,
                   world[x][y] = worldTemp[x][y];
               }
           }
+
           select {
               case fromButtons :> buttonPress:
                   if(buttonPress == 13){
@@ -182,26 +185,10 @@ void distributor(chanend datastream_in, chanend datastream_out, chanend fromAcc,
                   break;
           }
 
-          //fromButtons :> buttonPress;
-            if(buttonPress == 13){
-                printf("yay\n");
-            }
-
-          // To Dataout
-          //datastream_out <: (uchar)deadOrAlive(world[x][y],values);
-
           printf( "\n%d processing round completed...\n", round);
           round++;
       }
   }
-
-//   for( int y = 0; y < IMHT; y++ ) {   //go through all lines
-//     for( int x = 0; x < IMWD; x++ ) { //go through each pixel per line
-//      datastream_out <: (uchar)((world[x][y]) ^ 0xFF ); //send some modified pixel out
-//    }}
-
-
-
 }
 
 
@@ -222,11 +209,6 @@ int deadOrAlive(int value, int values[8])    {
         return value;
     }
 }
-
-
-
-
-
 
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -267,9 +249,10 @@ void DataOutStream(char outfname[], chanend c_in)
   return;
 }
 
+
 /////////////////////////////////////////////////////////////////////////////////////////
 //
-// Initialise and  read orientation, send first tilt event to channel
+// Initialise and  read orientation constantly
 //
 /////////////////////////////////////////////////////////////////////////////////////////
 void orientation( client interface i2c_master_if i2c, chanend toDist) {
