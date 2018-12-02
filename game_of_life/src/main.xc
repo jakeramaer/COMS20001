@@ -13,8 +13,8 @@
 
 typedef unsigned char uchar;      //using uchar as shorthand
 
-port p_scl = XS1_PORT_1E;         //interface ports to orientation
-port p_sda = XS1_PORT_1F;
+on tile[0]: port p_scl = XS1_PORT_1E;         //interface ports to orientation
+on tile[0]: port p_sda = XS1_PORT_1F;
 
 on tile[0] : in port buttons = XS1_PORT_4E; //port to access xCore-200 buttons
 on tile[0] : out port leds = XS1_PORT_4F;   //port to access xCore-200 LEDs
@@ -75,52 +75,86 @@ int showLEDs(out port p, chanend fromDist) {
   return 0;
 }
 
-void farmer(chanend fromDist)   {
-    uchar val;
-    int world[IMWD][IMHT];
-    int worldTemp[IMWD][IMHT];
+
+void farmer(int z, chanend fromDist, chanend above, chanend below)   {
+
 
     while(1){
+    uchar val;
+    int exec;
 
-    for( int y = 0; y < IMHT; y++ ) {   //go through all lines
-        for( int x = 0; x < IMWD; x++ ) { //go through each pixel per line
-            fromDist :> val; //read the pixel value
-            world[x][y] = val;
+    int world[IMWD][(IMHT/2)+2]; //half of the board + edge cases
+
+    fromDist :> exec;
+
+
+    for( int y = 1; y < (IMHT/2)+1; y++ ){ // world with no edge cases
+        for( int x = 0 ; x < IMWD; x++ ) {
+
+                fromDist :> val;
+                world[x][y] = val;
+                printf("recieved val");
         }
     }
 
-    for(int y = 0; y < IMHT; y++){
+    fromDist :> exec;
+
+    for(int x = 0; x < IMWD; x++){
+        if(z%2 == 0){
+            above <: world[x][1];
+            above <: world[x][(IMHT/2)];
+        }
+        else if(z%2 == 1){
+            below :> world[x][0];
+            below :> world[x][(IMHT/2)+1];
+        }
+    }
+
+    for(int x = 0; x < IMWD; x++){
+        if(z%2 == 1){
+            above <: world[x][1];
+            above <: world[x][(IMHT/2)];
+
+        }
+        else if(z%2 == 0){
+            below :> world[x][0];
+            below :> world[x][(IMHT/2)+1];
+
+        }
+    }
+    fromDist :> exec;
+    for(int y = 1; y <= (IMHT/2); y++){
                   for(int x = 0; x <IMWD; x++){
                       //Finds 8 values around val.
                       int values[8];
-                      values[0] = world[x][(y+(IMHT-1))%IMHT];
-                      values[1] = world[(x+(IMWD+1))%IMWD][(y+(IMHT-1))%IMHT];
-                      values[2] = world[(x+(IMWD+1))%IMWD][y];
-                      values[3] = world[(x+(IMWD+1))%IMWD][(y+(IMHT+1))%IMHT];
-                      values[4] = world[x][(y+(IMHT+1))%IMHT];
-                      values[5] = world[(x+(IMWD-1))%IMWD][(y+(IMHT+1))%IMHT];
+                      values[0] = world[x][y-1];
+                      values[1] = world[(x+(IMWD+1))%IMWD][y-1];
+                      values[2] = world[(x+((IMWD)+1))%IMWD][y];
+                      values[3] = world[(x+(IMWD+1))%IMWD][y+1];
+                      values[4] = world[x][y+1];
+                      values[5] = world[(x+(IMWD-1))%IMWD][y+1];
                       values[6] = world[(x+(IMWD-1))%IMWD][y];
-                      values[7] = world[(x+(IMWD-1))%IMWD][(y+(IMHT-1))%IMHT];
-                      worldTemp[x][y] = deadOrAlive(world[x][y],values); //changes values, stores in worldTemp
+                      values[7] = world[(x+(IMWD-1))%IMWD][y-1];
+                      val = deadOrAlive(world[x][y],values); //changes values, stores in worldTemp
+                      fromDist <: val;
                   }
-    }
 
-    for( int y = 0; y < IMHT; y++ ) {   //go through all lines
-            for( int x = 0; x < IMWD; x++ ) { //go through each pixel per line
-                fromDist <: worldTemp[x][y];
-            }
     }
+    printf("done\n");
+    }
+}
 
-}
-}
+
+
 
 /////////////////////////////////////////////////////////////////////////////////////////
 //
 // Read Image from PGM file from path infname[] to channel c_out
 //
 /////////////////////////////////////////////////////////////////////////////////////////
-void DataInStream(char infname[], chanend c_out)
+void DataInStream(chanend c_out)
 {
+  char infname[] = "test.pgm";     //put your input image path here
   int res; //resolution
   uchar line[ IMWD ]; //unsigned char array image width 16
   printf( "DataInStream: Start...\n" );
@@ -156,14 +190,14 @@ void DataInStream(char infname[], chanend c_out)
 // Distributer function
 //
 /////////////////////////////////////////////////////////////////////////////////////////
-void distributor(chanend datastream_in, chanend datastream_out, chanend fromAcc, chanend fromButtons, chanend toLEDS, chanend toTimer, chanend toFarmer)
+void distributor(chanend datastream_in, chanend datastream_out, chanend fromAcc, chanend fromButtons, chanend toLEDS, chanend toTimer, chanend toFarmer[2])
 {
   uchar val;
   int world[IMWD][IMHT];//array to store whole game
   int running = 1;
   int buttonPress;
   int round = 1;
-  int value = 1;
+  int value;
 
 
   //Starting up and wait for tilting of the xCore-200 Explorer
@@ -177,36 +211,75 @@ void distributor(chanend datastream_in, chanend datastream_out, chanend fromAcc,
           toTimer <: 1;
           printf( "Waiting for Board Tilt...\n" );
 
+          fromAcc :> value;
+          while(value == 1){
+                      fromAcc :> value;
+                  }
+
 
           toLEDS <: 1; // To indicate processing
           printf( "Processing...\n" );
+
+          toFarmer[0] <: 1;
+          toFarmer[1] <: 1;
+          // SEND VALUES
           if(round == 1){
               toLEDS <: 4;
               for( int y = 0; y < IMHT; y++ ) {   //go through all lines
                   for( int x = 0; x < IMWD; x++ ) { //go through each pixel per line
-                      datastream_in :> val; //read the pixel value
-                      toFarmer <: val; //building the world
+                      if(y < IMHT/2){
+                          datastream_in :> val; //read the pixel value
+                          toFarmer[0] <: val; //building the world
+                      }
+                      else {
+                          datastream_in :> val; //read the pixel value
+                          toFarmer[1] <: val; //building the world
+                      }
+
+
                   }
               }
-
+              toFarmer[0] <: 1;
+              toFarmer[1] <: 1;
               toLEDS <: 1;
           }
-
           else{
+              printf("hello\n");
               for(int y = 0; y < IMHT; y++){
                            for(int x = 0; x <IMWD; x++){
-                               toFarmer <: (uchar) world[x][y];
+                               if(y < IMHT/2){
+                                   printf("hello2\n");
+                                   toFarmer[0] <: world[x][y]; //building the world
+                                   printf("hello3\n");
+                               }
+                               else {
+                                   toFarmer[1] <: world[x][y]; //building the world
+                               }
                            }
                        }
+              printf("hell77o\n");
+              toFarmer[0] <: 1;
+              toFarmer[1] <: 1;
           }
 
 
           // Assinging new values to world
-          for(int y = 0; y < IMHT; y++){
-              for(int x = 0; x <IMWD; x++){
-                  toFarmer :> world[x][y];
+
+              toFarmer[0] <: 1;
+              for(int y = 0; y < IMHT/2; y++){
+                  for(int x = 0; x <IMWD; x++){
+                      toFarmer[0] :> val;
+                      world[x][y] = val;
+                  }
               }
-          }
+
+              toFarmer[1] <: 1;
+              for(int y = IMHT-1; y >= IMHT/2; y--){
+                  for(int x = 0; x <IMWD; x++){
+                           toFarmer[1] :> val;
+                           world[x][y] = val;
+                                }
+                            }
 
           // Print function
           for( int y = 0; y < IMHT; y++ ) {
@@ -230,11 +303,11 @@ void distributor(chanend datastream_in, chanend datastream_out, chanend fromAcc,
                       toLEDS <: 0;
                   }
                   break;
-              case fromAcc :> value:
-                  while(value == 1){
-                      fromAcc :> value;
-                  }
-                  break;
+              //case fromAcc :> value:
+                  //while(value == 1){
+                   //   fromAcc :> value;
+                 // }
+                 // break;
               default:
                   break;
           }
@@ -304,8 +377,9 @@ void timerFunction(chanend fromDist) {
 // Write pixel stream from channel c_in to PGM image file
 //
 /////////////////////////////////////////////////////////////////////////////////////////
-void DataOutStream(char outfname[], chanend c_in)
+void DataOutStream(chanend c_in)
 {
+  char outfname[] = "testout.pgm"; //put your output image path here
   int res;
   int running = 1;
   uchar line[ IMWD ];
@@ -390,20 +464,20 @@ int main(void) {
 
 i2c_master_if i2c[1];               //interface to orientation
 
-char infname[] = "test.pgm";     //put your input image path here
-char outfname[] = "testout.pgm"; //put your output image path here
-chan inStreamToD, outStreamToD, orientations, buttonsToD, distToLEDS, distToTimer, distToFarmer;    //extend your channel definitions here
+chan inStreamToD, outStreamToD, orientations, buttonsToD, distToLEDS, distToTimer, distToFarmer[2], farmerConnect[2];    //extend your channel definitions here
 
 par {
-    i2c_master(i2c, 1, p_scl, p_sda, 10);   //server thread providing orientation data
-    orientation(i2c[0], orientations);        //client thread reading orientation data
-    DataInStream(infname, inStreamToD);         //thread to read in a PGM image
-    DataOutStream(outfname, outStreamToD);       //thread to write out a PGM image
-    distributor(inStreamToD, outStreamToD, orientations, buttonsToD, distToLEDS, distToTimer, distToFarmer);//thread to coordinate work on image
-    buttonListener(buttons, buttonsToD);
-    showLEDs(leds, distToLEDS);
-    timerFunction(distToTimer);
-    farmer(distToFarmer);
+    on tile[1]: farmer(0, distToFarmer[0],farmerConnect[0], farmerConnect[1]);
+    on tile[1]: farmer(1, distToFarmer[1],farmerConnect[1], farmerConnect[0]);
+    on tile[0]: i2c_master(i2c, 1, p_scl, p_sda, 10);   //server thread providing orientation data
+    on tile[0]: orientation(i2c[0], orientations);        //client thread reading orientation data
+    on tile[1]: DataInStream(inStreamToD);         //thread to read in a PGM image
+    on tile[1]: DataOutStream(outStreamToD);       //thread to write out a PGM image
+    on tile[1]: distributor(inStreamToD, outStreamToD, orientations, buttonsToD, distToLEDS, distToTimer, distToFarmer);//thread to coordinate work on image
+    on tile[0]: buttonListener(buttons, buttonsToD);
+    on tile[0]: showLEDs(leds, distToLEDS);
+    on tile[1]: timerFunction(distToTimer);
+
   }
 
   return 0;
