@@ -76,67 +76,75 @@ int showLEDs(out port p, chanend fromDist) {
 }
 
 
-void farmer(int z, chanend fromDist, chanend above, chanend below)   {
+void worker(int z, chanend fromDist, chanend above, chanend below)   {
 
     uchar val;
     int exec;
-    while(1){
+    int round = 1;
+    int world[(IMHT/2)+2][IMWD]; //half of the board + edge cases
+    int worldtemp[(IMHT/2)+2][IMWD];
 
-    int world[IMWD][(IMHT/2)+2]; //half of the board + edge cases
+
+    while(1){
 
     fromDist :> exec;   // Wait until control signal is sent from Dist
 
+    if(round = 1)   {
     for( int y = 1; y < (IMHT/2)+1; y++ ){  // world with no edge cases
         for( int x = 0 ; x < IMWD; x++ ) {
                 fromDist :> val;
-                world[x][y] = val;
-                printf("recieved val");
+                world[y][x] = val;
+
         }
     }
+    }
 
-    fromDist :> exec;
+    fromDist :> exec; // synchronise send between workers
 
     for(int x = 0; x < IMWD; x++){  // Sending edge cases to one another - EVEN SEND
         if(z%2 == 0){   //  if even
-            above <: world[x][1];
-            above <: world[x][(IMHT/2)];
+            above <: world[1][x];
+            above <: world[(IMHT)/2][x];
         }
         else if(z%2 == 1){  //  if odd
-            below :> world[x][0];
-            below :> world[x][(IMHT/2)+1];
+            below :> world[(IMHT/2)+1][x];
+            below :> world[0][x];
         }
     }
 
     for(int x = 0; x < IMWD; x++){  // Sending edge cases to one another - ODD SEND
         if(z%2 == 1){
-            above <: world[x][1];
-            above <: world[x][(IMHT/2)];
+            above <: world[1][x];
+            above <: world[(IMHT/2)][x];
         }
         else if(z%2 == 0){
-            below :> world[x][0];
-            below :> world[x][(IMHT/2)+1];
+            below :> world[(IMHT/2)+1][x];
+            below :> world[0][x];
         }
     }
-
-    fromDist :> exec;
 
     for(int y = 1; y <= (IMHT/2); y++){
                   for(int x = 0; x <IMWD; x++){
                       //Finds 8 values around val.
                       int values[8];
-                      values[0] = world[x][y-1];
-                      values[1] = world[(x+(IMWD+1))%IMWD][y-1];
-                      values[2] = world[(x+((IMWD)+1))%IMWD][y];
-                      values[3] = world[(x+(IMWD+1))%IMWD][y+1];
-                      values[4] = world[x][y+1];
-                      values[5] = world[(x+(IMWD-1))%IMWD][y+1];
-                      values[6] = world[(x+(IMWD-1))%IMWD][y];
-                      values[7] = world[(x+(IMWD-1))%IMWD][y-1];
-                      val = deadOrAlive(world[x][y],values); //changes values, stores in worldTemp
-                      fromDist <: val;
+                      values[0] = world[y-1][x];
+                      values[1] = world[y-1][(x+(IMWD+1))%IMWD];
+                      values[2] = world[y][(x+((IMWD)+1))%IMWD];
+                      values[3] = world[y+1][(x+(IMWD+1))%IMWD];
+                      values[4] = world[y+1][x];
+                      values[5] = world[y+1][(x+(IMWD-1))%IMWD];
+                      values[6] = world[y][(x+(IMWD-1))%IMWD];
+                      values[7] = world[y-1][(x+(IMWD-1))%IMWD];
+                      val = deadOrAlive(world[y][x],values); //changes values, stores in worldTemp
+                      worldtemp[y][x] = val;
                   }
     }
-    printf("done\n");
+    for(int y = 1; y <= (IMHT/2); y++){
+                      for(int x = 0; x <IMWD; x++){
+                            world[y][x] = worldtemp[y][x];
+                      }
+    }
+    round++;
     }
 }
 
@@ -184,10 +192,10 @@ void DataInStream(chanend c_out)
 // Distributer function
 //
 /////////////////////////////////////////////////////////////////////////////////////////
-void distributor(chanend datastream_in, chanend datastream_out, chanend fromAcc, chanend fromButtons, chanend toLEDS, chanend toTimer, chanend toFarmer[2])
+void distributor(chanend datastream_in, chanend datastream_out, chanend fromAcc, chanend fromButtons, chanend toLEDS, chanend toTimer, chanend toWorker[2])
 {
   uchar val;
-  int world[IMWD][IMHT];//array to store whole game
+  int world[IMHT][IMWD];//array to store whole game
   int running = 1;
   int buttonPress;
   int round = 1;
@@ -200,9 +208,9 @@ void distributor(chanend datastream_in, chanend datastream_out, chanend fromAcc,
 
   if(buttonPress == 14){
 
+      printf( "Waiting for Board Tilt...\n" );  //  Innitial board tilt
       while(running){
 
-          printf( "Waiting for Board Tilt...\n" );  //  Innitial board tilt
           fromAcc :> value;
           while(value == 1){
                       fromAcc :> value;
@@ -213,8 +221,8 @@ void distributor(chanend datastream_in, chanend datastream_out, chanend fromAcc,
           toLEDS <: 1; // To indicate processing
           printf( "Processing...\n" );
 
-          toFarmer[0] <: 1; // Sending exec values
-          toFarmer[1] <: 1;
+          toWorker[0] <: 1; // Sending exec values
+          toWorker[1] <: 1;
 
           // SEND VALUES
           if(round == 1){   // eventally this will be only bit of distributer to send values
@@ -223,60 +231,37 @@ void distributor(chanend datastream_in, chanend datastream_out, chanend fromAcc,
                   for( int x = 0; x < IMWD; x++ ) { //go through each pixel per line
                       if(y < IMHT/2){
                           datastream_in :> val; //read the pixel value
-                          toFarmer[0] <: val; //building the world
+                          toWorker[0] <: val; //building the world
                       }
                       else {
                           datastream_in :> val; //read the pixel value
-                          toFarmer[1] <: val; //building the world
+                          toWorker[1] <: val; //building the world
                       }
                   }
               }
-              toFarmer[0] <: 1;
-              toFarmer[1] <: 1;
+              toWorker[0] <: 1;
+              toWorker[1] <: 1;
               toLEDS <: 1;
           }
 
           else{     // EVENTUALLY THIS WILL BE REMOVED AND FARMERS WILL ONLY SEND VALUES OUT FOR DATA OUT
               for(int y = 0; y < IMHT; y++){
                   for(int x = 0; x <IMWD; x++){
+
                       if(y < IMHT/2){
-                          toFarmer[0] <: world[x][y]; //    Sending top half
+
+                          toWorker[0] <: (uchar) world[y][x]; //    Sending top half
+
                       }
                       else {
-                          toFarmer[1] <: world[x][y]; //    Sending bottom half
+
+                          toWorker[1] <: (uchar) world[y][x]; //    Sending bottom half
+
                       }
                   }
               }
-              toFarmer[0] <: 1;
-              toFarmer[1] <: 1;
-          }
-
-
-          // ASSIGNING NEW VALUES TO WORLD
-          toFarmer[0] <: 1;
-          for(int y = 0; y < IMHT/2; y++){
-              for(int x = 0; x <IMWD; x++){
-                  toFarmer[0] :> val;
-                  world[x][y] = val;
-              }
-          }
-
-          toFarmer[1] <: 1;
-          for(int y = IMHT-1; y >= IMHT/2; y--){
-              for(int x = 0; x <IMWD; x++){
-                   toFarmer[1] :> val;
-                   world[x][y] = val;
-              }
-          }
-
-          // PRINT FUNCTION
-          for( int y = 0; y < IMHT; y++ ) {
-              int line[IMWD];
-              for( int x = 0; x < IMWD; x++ ) {
-                  line[x] = world[x][y];
-                  printf( "-%4.1d ", line[ x ] ); //show image values
-              }
-              printf( "\n" );
+              toWorker[0] <: 1;
+              toWorker[1] <: 1;
           }
 
           // DATA OUT FUNCION
@@ -286,20 +271,16 @@ void distributor(chanend datastream_in, chanend datastream_out, chanend fromAcc,
                       toLEDS <: 2;
                       for(int y = 0; y < IMHT; y++){
                           for(int x = 0; x <IMWD; x++){
-                              datastream_out <: (uchar)world[x][y];
+                              datastream_out <: (uchar)world[y][x];
                           }
                       }
                       toLEDS <: 0;
                   }
                   break;
-              //case fromAcc :> value:
-                  //while(value == 1){
-                   //   fromAcc :> value;
-                 // }
-                 // break;
               default:
                   break;
           }
+
 
           toLEDS <: 0; // To indicate finished processing
           toTimer <: 0;
@@ -447,16 +428,16 @@ int main(void) {
 
 i2c_master_if i2c[1];   //interface to orientation
 
-chan inStreamToD, outStreamToD, orientations, buttonsToD, distToLEDS, distToTimer, distToFarmer[2], farmerConnect[2];    //extend your channel definitions here
+chan inStreamToD, outStreamToD, orientations, buttonsToD, distToLEDS, distToTimer, distToWorker[2], workerConnect[2];    //extend your channel definitions here
 
 par {
-    on tile[1]: farmer(0, distToFarmer[0],farmerConnect[0], farmerConnect[1]);
-    on tile[1]: farmer(1, distToFarmer[1],farmerConnect[1], farmerConnect[0]);
+    on tile[1]: worker(0, distToWorker[0],workerConnect[0], workerConnect[1]);
+    on tile[1]: worker(1, distToWorker[1],workerConnect[1], workerConnect[0]);
     on tile[0]: i2c_master(i2c, 1, p_scl, p_sda, 10);   //server thread providing orientation data
     on tile[0]: orientation(i2c[0], orientations);        //client thread reading orientation data
     on tile[1]: DataInStream(inStreamToD);         //thread to read in a PGM image
     on tile[1]: DataOutStream(outStreamToD);       //thread to write out a PGM image
-    on tile[1]: distributor(inStreamToD, outStreamToD, orientations, buttonsToD, distToLEDS, distToTimer, distToFarmer);//thread to coordinate work on image
+    on tile[1]: distributor(inStreamToD, outStreamToD, orientations, buttonsToD, distToLEDS, distToTimer, distToWorker);//thread to coordinate work on image
     on tile[0]: buttonListener(buttons, buttonsToD);
     on tile[0]: showLEDs(leds, distToLEDS);
     on tile[1]: timerFunction(distToTimer);
