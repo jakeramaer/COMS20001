@@ -88,7 +88,6 @@ void farmer(int z, chanend fromDist, chanend above, chanend below)   {
 
     for( int y = 1; y < (IMHT/2)+1; y++ ){  // world with no edge cases
         for( int x = 0 ; x < IMWD; x++ ) {
-
                 fromDist :> val;
                 world[x][y] = val;
                 printf("recieved val");
