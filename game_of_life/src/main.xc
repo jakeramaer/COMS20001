@@ -54,23 +54,23 @@ int showLEDs(out port p, chanend fromDist) {
                //4th bit...red LED
   while (1) {
       select  {
-                  case fromDist :> pattern:
-                      if(pattern == 0)  {
-                          p <: 0;
-                      }
-                      else if (pattern == 1)  {
-                          p <: 1;
-                      }
-                      else if(pattern == 2)  {
-                          p <: 2;
-                      }
-                      else if(pattern == 4){
-                          p <: 4;
-                      }
-                      break;
-                  default:
-                      break;
+          case fromDist :> pattern:
+              if(pattern == 0)  {
+                  p <: 0;
               }
+              else if (pattern == 1)  {
+                  p <: 1;
+              }
+              else if(pattern == 2)  {
+                  p <: 2;
+              }
+              else if(pattern == 4){
+                  p <: 4;
+              }
+              break;
+          default:
+              break;
+      }
   }
   return 0;
 }
@@ -78,17 +78,15 @@ int showLEDs(out port p, chanend fromDist) {
 
 void farmer(int z, chanend fromDist, chanend above, chanend below)   {
 
-
-    while(1){
     uchar val;
     int exec;
+    while(1){
 
     int world[IMWD][(IMHT/2)+2]; //half of the board + edge cases
 
-    fromDist :> exec;
+    fromDist :> exec;   // Wait until control signal is sent from Dist
 
-
-    for( int y = 1; y < (IMHT/2)+1; y++ ){ // world with no edge cases
+    for( int y = 1; y < (IMHT/2)+1; y++ ){  // world with no edge cases
         for( int x = 0 ; x < IMWD; x++ ) {
 
                 fromDist :> val;
@@ -99,30 +97,30 @@ void farmer(int z, chanend fromDist, chanend above, chanend below)   {
 
     fromDist :> exec;
 
-    for(int x = 0; x < IMWD; x++){
-        if(z%2 == 0){
+    for(int x = 0; x < IMWD; x++){  // Sending edge cases to one another - EVEN SEND
+        if(z%2 == 0){   //  if even
             above <: world[x][1];
             above <: world[x][(IMHT/2)];
         }
-        else if(z%2 == 1){
+        else if(z%2 == 1){  //  if odd
             below :> world[x][0];
             below :> world[x][(IMHT/2)+1];
         }
     }
 
-    for(int x = 0; x < IMWD; x++){
+    for(int x = 0; x < IMWD; x++){  // Sending edge cases to one another - ODD SEND
         if(z%2 == 1){
             above <: world[x][1];
             above <: world[x][(IMHT/2)];
-
         }
         else if(z%2 == 0){
             below :> world[x][0];
             below :> world[x][(IMHT/2)+1];
-
         }
     }
+
     fromDist :> exec;
+
     for(int y = 1; y <= (IMHT/2); y++){
                   for(int x = 0; x <IMWD; x++){
                       //Finds 8 values around val.
@@ -138,7 +136,6 @@ void farmer(int z, chanend fromDist, chanend above, chanend below)   {
                       val = deadOrAlive(world[x][y],values); //changes values, stores in worldTemp
                       fromDist <: val;
                   }
-
     }
     printf("done\n");
     }
@@ -166,11 +163,9 @@ void DataInStream(chanend c_out)
     return;
   }
 
-
   //Read image line-by-line and send byte by byte to channel c_out
   for( int y = 0; y < IMHT; y++ ) {
     _readinline( line, IMWD );
-
     for( int x = 0; x < IMWD; x++ ) {
       c_out <: line[ x ];
       printf( "-%4.1d ", line[ x ] ); //show image values
@@ -199,7 +194,6 @@ void distributor(chanend datastream_in, chanend datastream_out, chanend fromAcc,
   int round = 1;
   int value;
 
-
   //Starting up and wait for tilting of the xCore-200 Explorer
   printf( "ProcessImage: Start, size =h %dx%d\n", IMHT, IMWD );
   printf("Waiting for button press...\n");
@@ -208,22 +202,23 @@ void distributor(chanend datastream_in, chanend datastream_out, chanend fromAcc,
   if(buttonPress == 14){
 
       while(running){
-          toTimer <: 1;
-          printf( "Waiting for Board Tilt...\n" );
 
+          printf( "Waiting for Board Tilt...\n" );  //  Innitial board tilt
           fromAcc :> value;
           while(value == 1){
                       fromAcc :> value;
                   }
 
+          toTimer <: 1; // Start timer
 
           toLEDS <: 1; // To indicate processing
           printf( "Processing...\n" );
 
-          toFarmer[0] <: 1;
+          toFarmer[0] <: 1; // Sending exec values
           toFarmer[1] <: 1;
+
           // SEND VALUES
-          if(round == 1){
+          if(round == 1){   // eventally this will be only bit of distributer to send values
               toLEDS <: 4;
               for( int y = 0; y < IMHT; y++ ) {   //go through all lines
                   for( int x = 0; x < IMWD; x++ ) { //go through each pixel per line
@@ -235,53 +230,47 @@ void distributor(chanend datastream_in, chanend datastream_out, chanend fromAcc,
                           datastream_in :> val; //read the pixel value
                           toFarmer[1] <: val; //building the world
                       }
-
-
                   }
               }
               toFarmer[0] <: 1;
               toFarmer[1] <: 1;
               toLEDS <: 1;
           }
-          else{
-              printf("hello\n");
+
+          else{     // EVENTUALLY THIS WILL BE REMOVED AND FARMERS WILL ONLY SEND VALUES OUT FOR DATA OUT
               for(int y = 0; y < IMHT; y++){
-                           for(int x = 0; x <IMWD; x++){
-                               if(y < IMHT/2){
-                                   printf("hello2\n");
-                                   toFarmer[0] <: world[x][y]; //building the world
-                                   printf("hello3\n");
-                               }
-                               else {
-                                   toFarmer[1] <: world[x][y]; //building the world
-                               }
-                           }
-                       }
-              printf("hell77o\n");
+                  for(int x = 0; x <IMWD; x++){
+                      if(y < IMHT/2){
+                          toFarmer[0] <: world[x][y]; //    Sending top half
+                      }
+                      else {
+                          toFarmer[1] <: world[x][y]; //    Sending bottom half
+                      }
+                  }
+              }
               toFarmer[0] <: 1;
               toFarmer[1] <: 1;
           }
 
 
-          // Assinging new values to world
-
-              toFarmer[0] <: 1;
-              for(int y = 0; y < IMHT/2; y++){
-                  for(int x = 0; x <IMWD; x++){
-                      toFarmer[0] :> val;
-                      world[x][y] = val;
-                  }
+          // ASSIGNING NEW VALUES TO WORLD
+          toFarmer[0] <: 1;
+          for(int y = 0; y < IMHT/2; y++){
+              for(int x = 0; x <IMWD; x++){
+                  toFarmer[0] :> val;
+                  world[x][y] = val;
               }
+          }
 
-              toFarmer[1] <: 1;
-              for(int y = IMHT-1; y >= IMHT/2; y--){
-                  for(int x = 0; x <IMWD; x++){
-                           toFarmer[1] :> val;
-                           world[x][y] = val;
-                                }
-                            }
+          toFarmer[1] <: 1;
+          for(int y = IMHT-1; y >= IMHT/2; y--){
+              for(int x = 0; x <IMWD; x++){
+                   toFarmer[1] :> val;
+                   world[x][y] = val;
+              }
+          }
 
-          // Print function
+          // PRINT FUNCTION
           for( int y = 0; y < IMHT; y++ ) {
               int line[IMWD];
               for( int x = 0; x < IMWD; x++ ) {
@@ -291,6 +280,7 @@ void distributor(chanend datastream_in, chanend datastream_out, chanend fromAcc,
               printf( "\n" );
           }
 
+          // DATA OUT FUNCION
           select {
               case fromButtons :> buttonPress:
                   if(buttonPress == 13){
@@ -320,15 +310,7 @@ void distributor(chanend datastream_in, chanend datastream_out, chanend fromAcc,
   }
 }
 
-
-
-
-//void worker(chanend fromDist){
-    //world[(IMWD/2)+2][(IMHT/2)+2];
-  //  for(int x = 1, )
-//}
-
-int deadOrAlive(int value, int values[8])    {
+int deadOrAlive(int value, int values[8])    {  // This will have to be changed for bitpacking
     int count = 0;
     for(int x = 0; x <8; x++){
         if(values[x] == 255){
@@ -370,7 +352,9 @@ void timerFunction(chanend fromDist) {
                     time1 = 0;
                 }
                 break;
-        }}}
+        }
+    }
+}
 
 /////////////////////////////////////////////////////////////////////////////////////////
 //
@@ -462,7 +446,7 @@ void orientation( client interface i2c_master_if i2c, chanend toDist) {
 /////////////////////////////////////////////////////////////////////////////////////////
 int main(void) {
 
-i2c_master_if i2c[1];               //interface to orientation
+i2c_master_if i2c[1];   //interface to orientation
 
 chan inStreamToD, outStreamToD, orientations, buttonsToD, distToLEDS, distToTimer, distToFarmer[2], farmerConnect[2];    //extend your channel definitions here
 
