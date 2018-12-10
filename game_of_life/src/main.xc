@@ -9,8 +9,8 @@
 #include "pgmIO.h"
 #include "i2c.h"
 
-#define  IMHT 128                  //image height
-#define  IMWD 128                  //image width
+#define  IMHT 64                  //image height
+#define  IMWD 64                  //image width
 
 typedef unsigned char uchar;      //using uchar as shorthand
 
@@ -49,25 +49,11 @@ void buttonListener(in port b, chanend toDist) {
 }
 
 int showLEDs(out port p, chanend fromDist) {
-  int pattern; //1st bit...separate green LED
-               //2nd bit...blue LED
-               //3rd bit...green LED
-               //4th bit...red LED
+  int pattern; //1st bit...separate green LED, 2nd bit...blue LED, 3rd bit...green LED, 4th bit...red LED
   while (1) {
       select  {
           case fromDist :> pattern:
-              if(pattern == 0)  {
-                  p <: 0;
-              }
-              else if (pattern == 1)  {
-                  p <: 1;
-              }
-              else if(pattern == 2)  {
-                  p <: 2;
-              }
-              else if(pattern == 4){
-                  p <: 4;
-              }
+              p <: pattern;
               break;
           default:
               break;
@@ -142,9 +128,9 @@ int arraySum(uchar array[(IMWD/8)*3]){
 }
 
 int bitDead(uchar world[3][IMWD], int x, uchar bitval) {
-    int val = 0;
-    //Finds 8 values around val.
-    int values[8];
+
+    int values[8];  //Finds 8 values around val.
+
     values[0] = world[0][x];
     values[1] = world[0][(x+(IMWD+1))%IMWD];
     values[2] = world[1][(x+((IMWD)+1))%IMWD];
@@ -153,8 +139,7 @@ int bitDead(uchar world[3][IMWD], int x, uchar bitval) {
     values[5] = world[2][(x+(IMWD-1))%IMWD];
     values[6] = world[1][(x+(IMWD-1))%IMWD];
     values[7] = world[0][(x+(IMWD-1))%IMWD];
-    val = deadOrAlive(bitval,values); //changes values, stores in worldTemp
-    return val;
+    return deadOrAlive(bitval,values); //changes values, stores in bitVal
 }
 
 void worker(int z, chanend fromDist, chanend above, chanend below)   {
@@ -170,7 +155,7 @@ void worker(int z, chanend fromDist, chanend above, chanend below)   {
 
     //  Round one - ONLY INPUTS ONCE
     if(round == 1)   {
-        fromDist :> exec;   // Wait until control signal is sent from Dist - ONLY NEEDED HERE, NO NEED FOR 2
+        fromDist :> exec;   // Wait until control signal is sent from Dist
         for( int y = 1; y < (IMHT/8)+1; y++ ){  // world with no edge cases
             for( int x = 0 ; x < IMWD/8; x++ ) {
                 fromDist :> val;
@@ -192,7 +177,6 @@ void worker(int z, chanend fromDist, chanend above, chanend below)   {
             above :> world[0][x];
         }
     }
-
     // Sending edge cases to one another - ODD SEND
     for(int x = 0; x < IMWD/8; x++){
         if(z%2 == 1){
@@ -204,26 +188,24 @@ void worker(int z, chanend fromDist, chanend above, chanend below)   {
             above :> world[0][x];
         }
     }
-    //printf("SENT AND RECIEVED - %d", z);
 
-    for(int y = 1; y <= (IMHT/8); y++){ // for middle values - no edges
+    // UNPACKING AND PROCESSING
+    for(int y = 1; y <= (IMHT/8); y++){
+
             uchar values[(IMWD/8)*3];
+            uchar bits[8];              //Temporary store for unpacked values
+            uchar bitWorld[3][IMWD];    //Stores All unpacked values
+            uchar bitWorldTemp[IMWD];   //Stores all new values from DeadOrAlive
+
             int counter = 0;
-            for(int n = y-1; n <= y+1; n++)   { // values around y
+            for(int n = y-1; n <= y+1; n++)   { // Taking all values around x
                 for(int x = 0; x <IMWD/8; x++){
                     values[counter] = world[n][x];
                     counter++;
                 }
             }
 
-          // if(arraySum(values)  != 0){
-
-            uchar bits[8]; //Temporary store for unpacked values
-            uchar bitWorld[3][IMWD];  //Stores All unpacked values
-            uchar bitWorldTemp[IMWD]; //Stores all new values from DeadOrAlive
-
-
-            // adds every line to bitworld
+            // adds every line to bitworld - UNPACKED
             for(int u = 0; u < 3; u++){
                 for(int k = 0; k<IMWD/8; k++){
                       for(int i = 0; i<8; i++){
@@ -232,10 +214,10 @@ void worker(int z, chanend fromDist, chanend above, chanend below)   {
                     }
                 }
 
-
-            // computes dead or alive
+            // computes dead or alive - UNPACKED
             for(int a = 0; a < IMWD; a++){
                 bitWorldTemp[a] = (uchar) bitDead(bitWorld, a , bitWorld[1][a]); //Generates new values for board and stores it temporarily in this array.
+
             }
 
             // Packing it back up
@@ -246,16 +228,15 @@ void worker(int z, chanend fromDist, chanend above, chanend below)   {
                }
                worldtemp[y][a] = result;
             }
-
-   // }
+    }
 
     // Assigning new values to world
     for(int y = 1; y <= (IMHT/8); y++){
-      for(int x = 0; x <IMWD/8; x++){
-                            world[y][x] = worldtemp[y][x];
-                      }
+        for(int x = 0; x <IMWD/8; x++){
+            world[y][x] = worldtemp[y][x];
         }
     }
+
     // DATA OUT FUNCTION
     fromDist :> exec;
     if(exec == 2)    {
@@ -267,6 +248,7 @@ void worker(int z, chanend fromDist, chanend above, chanend below)   {
             }
         }
     }
+
     round++;
     }
 }
@@ -280,7 +262,7 @@ void worker(int z, chanend fromDist, chanend above, chanend below)   {
 /////////////////////////////////////////////////////////////////////////////////////////
 void DataInStream(chanend c_out)
 {
-  char infname[] = "128x128.pgm";     //put your input image path here
+  char infname[] = "64x64.pgm";     //put your input image path here
   int res; //resolution
   uchar line[ IMWD ]; //unsigned char array image width 16
   printf( "DataInStream: Start...\n" );
@@ -326,7 +308,6 @@ void distributor(chanend datastream_in, chanend datastream_out, chanend fromAcc,
   printf("Waiting for button press...\n");
   fromButtons :> buttonPress;
 
-
   if(buttonPress == 14){
 
       printf( "Waiting for Board Tilt...\n" );  //  Innitial board tilt
@@ -334,8 +315,8 @@ void distributor(chanend datastream_in, chanend datastream_out, chanend fromAcc,
 
           fromAcc :> value;
           while(value == 1){
-                      fromAcc :> value;
-                  }
+              fromAcc :> value;
+          }
 
           if(round%100 == 0){
               toTimer <: 1; // Start timer
@@ -351,74 +332,19 @@ void distributor(chanend datastream_in, chanend datastream_out, chanend fromAcc,
                   toWorker[i] <: 1; // Sending exec values TO READ IN VALUES FROM DIST - only needed here
               }
 
-              for( int y = 0; y < IMHT; y++ ) {   //go through all lines
+              for(int z = 0; z < 8; z++){
+              for( int y = 0; y < IMHT/8; y++ ) {   //go through all lines
                   for( int x = 0; x < IMWD/8; x++ ) { //go through each pixel per line
-                      if(y < IMHT/8){
-                      int result = 0;
-                          for(int j = 0; j < 8; j++){
-                              datastream_in :> val; //read the pixel value
-                              result = bitPacker(result, val, j);
-                          }
-                          toWorker[0] <: (uchar) result; //building the world
-                      }
-                      else if(y < IMHT/4){
                           int result = 0;
                           for(int j = 0; j < 8; j++){
                               datastream_in :> val; //read the pixel value
                               result = bitPacker(result, val, j);
                           }
-                          toWorker[1] <: (uchar) result; //building the world
-                      }
-                      else if(y < (3*IMHT)/8){
-                          int result = 0;
-                          for(int j = 0; j < 8; j++){
-                              datastream_in :> val; //read the pixel value
-                              result = bitPacker(result, val, j);
-                          }
-                          toWorker[2] <: (uchar) result; //building the world
-                      }
-                      else if(y < (IMHT)/2){
-                          int result = 0;
-                          for(int j = 0; j < 8; j++){
-                              datastream_in :> val; //read the pixel value
-                              result = bitPacker(result, val, j);
-                          }
-                          toWorker[3] <: (uchar) result; //building the world
-                      }
-                      else if(y < (5*IMHT)/8){
-                          int result = 0;
-                          for(int j = 0; j < 8; j++){
-                              datastream_in :> val; //read the pixel value
-                              result = bitPacker(result, val, j);
-                          }
-                          toWorker[4] <: (uchar) result; //building the world
-                      }
-                      else if(y < (3*IMHT)/4){
-                          int result = 0;
-                          for(int j = 0; j < 8; j++){
-                              datastream_in :> val; //read the pixel value
-                              result = bitPacker(result, val, j);
-                          }
-                          toWorker[5] <: (uchar) result; //building the world
-                      }
-                      else if(y < (7*IMHT)/8){
-                          int result = 0;
-                          for(int j = 0; j < 8; j++){
-                              datastream_in :> val; //read the pixel value
-                              result = bitPacker(result, val, j);
-                          }
-                          toWorker[6] <: (uchar) result; //building the world
-                      }
-                      else {
-                          int result = 0;
-                          for(int j = 0; j < 8; j++){
-                              datastream_in :> val; //read the pixel value
-                              result = bitPacker(result, val, j);
-                          }
-                          toWorker[7] <: (uchar)result; //building the world
-                      }
+                          toWorker[z] <: (uchar) result; //building the world
+
                   }
               }
+          }
               toLEDS <: 1;
           }
           for(int i = 0; i < 8; i++){
@@ -429,48 +355,18 @@ void distributor(chanend datastream_in, chanend datastream_out, chanend fromAcc,
           select {
               case fromButtons :> buttonPress:
                   if(buttonPress == 13){
-                      for(int i = 0; i < 8; i++){
-                          toWorker[i] <: 2; // Sending exec values TO READ IN VALUES FROM DIST - only needed here
-                      }
                       toLEDS <: 2;
-                      for(int y = 0; y < IMHT; y++){
+                      for(int z = 0; z <8; z++){
+                      toWorker[z] <: 2;
+                      for(int y = 0; y < IMHT/8; y++){
                           for(int x = 0; x <IMWD; x++){
-                              if( y < (IMHT)/8)  {
-                                  toWorker[0] :> val;  //  recieving values from worker 0 and writing them out
-                                  datastream_out <: val;
-                              }
-                              else if( y < (IMHT)/4)  {
-                                  toWorker[1] :> val;  //  recieving values from worker 0 and writing them out
-                                  datastream_out <: val;
-                              }
-                              else if( y < 3*((IMHT)/8))  {
-                                  toWorker[2] :> val;  //  recieving values from worker 0 and writing them out
-                                  datastream_out <: val;
-                              }
-                              else if( y < (IMHT)/2)  {
-                                  toWorker[3] :> val;  //  recieving values from worker 0 and writing them out
-                                  datastream_out <: val;
-                              }
-                              else if( y < 5*((IMHT)/8))  {
-                                  toWorker[4] :> val;  //  recieving values from worker 0 and writing them out
-                                  datastream_out <: val;
-                              }
-                              else if( y < 3*((IMHT)/4))  {
-                                  toWorker[5] :> val;  //  recieving values from worker 0 and writing them out
-                                  datastream_out <: val;
-                              }
-                              else if( y < 7*((IMHT)/8))  {
-                                  toWorker[6] :> val;  //  recieving values from worker 0 and writing them out
-                                  datastream_out <: val;
-                              }
-                              else if( y < (IMHT))  {
-                                  toWorker[7] :> val;  //  recieving values from worker 0 and writing them out
-                                  datastream_out <: val;
+                              toWorker[z] :> val;  //  recieving values from worker 0 and writing them out
+                              datastream_out <: val;
                               }
                           }
                       }
+                      }
                       toLEDS <: 0;
-                  }
                   break;
               default:
                   for(int i = 0; i < 8; i++){
